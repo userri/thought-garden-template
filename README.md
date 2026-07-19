@@ -1,4 +1,4 @@
-# thought-garden 🌿 (template)
+# thought-garden(일기 수확 리포트) 🌿 (template)
 
 > **이 레포는 코드만 담은 공개 템플릿입니다.** 실제 운영 레포는 일기 원문이 들어가므로 private.
 > 사용법: 이 레포를 template으로 새 private 레포 생성 → Settings에 Secrets `ANTHROPIC_API_KEY`,
