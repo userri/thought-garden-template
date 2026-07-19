@@ -1,0 +1,33 @@
+name: private report
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "TG_MODEL (기본 Sonnet, 실험은 claude-haiku-4-5)"
+        default: "claude-haiku-4-5"
+    # 수동 실행 전용 — 비공개 글 분석은 자동 주기에 넣지 않는다
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python analyze.py --private
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TG_MODEL: ${{ inputs.model }}
+      - name: commit & push
+        run: |
+          git config user.name "thought-garden-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add reports
+          git diff --cached --quiet || git commit -m "report(private): $(date +%F)"
+          git pull --rebase --autostash && git push

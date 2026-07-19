@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "thought-garden harvester",
+  "version": "0.1.0",
+  "description": "내 네이버 블로그 비공개 글을 열람하는 순간 GitHub 레포에 자동 커밋",
+  "permissions": ["storage", "notifications"],
+  "host_permissions": [
+    "https://api.github.com/*",
+    "https://m.blog.naver.com/*",
+    "https://blog.naver.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://m.blog.naver.com/*",
+        "https://blog.naver.com/PostView.naver*"
+      ],
+      "all_frames": true,
+      "js": ["lib.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html"
+}
