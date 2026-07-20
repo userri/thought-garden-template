@@ -6,7 +6,8 @@
 import argparse
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 BASE = Path(__file__).parent
@@ -115,7 +116,9 @@ def analyze(mode: str = "public") -> Path:
     if resp.stop_reason == "max_tokens":
         print("경고: max_tokens 도달 (리포트가 잘렸을 수 있음)", file=sys.stderr)
     REPORTS_DIR.mkdir(exist_ok=True)
-    path = report_path(date.today(), prefix)
+    # CI 러너는 UTC — KST 월요일 아침 실행 시 UTC는 아직 일요일(지난 주차)이라
+    # 지난주 리포트를 덮어쓰는 버그가 있었다. 주차 계산은 항상 KST 기준.
+    path = report_path(datetime.now(ZoneInfo("Asia/Seoul")).date(), prefix)
     path.write_text(extract_text(resp.content) + "\n", encoding="utf-8")
     print(f"saved: {path.name}")
     return path
