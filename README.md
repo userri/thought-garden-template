@@ -4,6 +4,8 @@
 > 사용법: 이 레포를 template으로 새 private 레포 생성 → Settings에 Secrets `ANTHROPIC_API_KEY`,
 > Variables `BLOG_ID`(네이버 블로그 ID) 등록 → 크롬 확장은 `extension/` 폴더를 개발자 모드로 로드.
 > 본인 계정 전용 도구입니다 — 타인의 블로그 수집 용도가 아닙니다.
+>
+> 📖 **프로젝트 스토리(설계 결정·트러블슈팅·회고)**: https://aes-portfolio-app-vhi.vercel.app/project/ThoughtGarden
 
 
 네이버 블로그 일기를 자동으로 수확해 LLM으로 분석하고, 주간 인사이트 리포트를 git 커밋으로 쌓는 도구.
