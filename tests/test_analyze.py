@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -101,3 +101,11 @@ def test_analyze_skips_when_corpus_unchanged(tmp_path, monkeypatch):
     # 새 글이 생기면 다시 분석해야 한다 (지문 불일치)
     (posts / "2026-07-02-b.md").write_text("둘", encoding="utf-8")
     assert analyze.fingerprint(analyze.load_posts(posts)) != analyze.load_fingerprints()["public"]
+
+
+def test_today_kst_uses_seoul_not_utc():
+    # 실제 사고 재현: 2026-07-26 22:53Z 실행 = KST 07-27(월, 31주차).
+    # UTC 기준이면 07-26(일, 30주차)이 되어 지난주 리포트를 덮어썼다.
+    run_at = datetime(2026, 7, 26, 22, 53, tzinfo=timezone.utc)
+    assert analyze.today_kst(run_at) == date(2026, 7, 27)
+    assert analyze.report_path(analyze.today_kst(run_at)).name == "2026-31.md"

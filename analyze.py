@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
@@ -66,6 +66,11 @@ def load_posts(posts_dir: Path = POSTS_DIR) -> str:
     if not posts:
         sys.exit(f"{posts_dir.name}/가 비어 있습니다. fetch.py를 먼저 실행하세요.")
     return "\n\n=====\n\n".join(p.read_text(encoding="utf-8") for p in posts)
+
+
+def today_kst(now=None) -> date:  # now: datetime | None (3.9 로컬 호환 위해 무표기)
+    """주차 계산 기준일. CI 러너는 UTC라 KST 월요일 새벽이 아직 지난주로 잡힌다."""
+    return (now or datetime.now(timezone.utc)).astimezone(ZoneInfo("Asia/Seoul")).date()
 
 
 def report_path(today: date, prefix: str = "") -> Path:
@@ -149,7 +154,7 @@ def analyze(mode: str = "public", force: bool = False):
     REPORTS_DIR.mkdir(exist_ok=True)
     # CI 러너는 UTC — KST 월요일 아침 실행 시 UTC는 아직 일요일(지난 주차)이라
     # 지난주 리포트를 덮어쓰는 버그가 있었다. 주차 계산은 항상 KST 기준.
-    path = report_path(datetime.now(ZoneInfo("Asia/Seoul")).date(), prefix)
+    path = report_path(today_kst(), prefix)
     path.write_text(extract_text(resp.content) + "\n", encoding="utf-8")
     save_fingerprint(mode, digest)
     print(f"saved: {path.name}")
