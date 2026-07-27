@@ -4,6 +4,8 @@
 공개/비공개는 톤이 달라 분리 분석한다 — README 참고.
 """
 import argparse
+import hashlib
+import json
 import os
 import sys
 from datetime import date, datetime
@@ -13,6 +15,8 @@ from pathlib import Path
 BASE = Path(__file__).parent
 POSTS_DIR = BASE / "posts"
 REPORTS_DIR = BASE / "reports"
+# 마지막으로 분석한 코퍼스의 지문. 새 글이 없으면 같은 내용을 또 분석하는 낭비를 막는다.
+FINGERPRINT_PATH = REPORTS_DIR / ".corpus.json"
 
 # 기본 Haiku — 단독 리포트는 Sonnet과 품질 차이를 체감 못해 저가 모델로 굳힘 (2026-07 실사용 비교).
 # 교차 분석은 코퍼스 합산이 Haiku 컨텍스트(200k)를 넘어 Sonnet 필수 — 워크플로에서 지정.
@@ -91,18 +95,45 @@ def extract_text(content_blocks) -> str:
     return "\n".join(texts)
 
 
-def analyze(mode: str = "public") -> Path:
+def fingerprint(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def load_fingerprints() -> dict:
+    if not FINGERPRINT_PATH.exists():
+        return {}
+    try:
+        return json.loads(FINGERPRINT_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}  # 손상 시 그냥 다시 분석한다 — 리포트 생성을 막을 이유는 없다
+
+
+def save_fingerprint(mode: str, digest: str) -> None:
+    marks = load_fingerprints()
+    marks[mode] = digest
+    REPORTS_DIR.mkdir(exist_ok=True)
+    FINGERPRINT_PATH.write_text(
+        json.dumps(marks, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def analyze(mode: str = "public", force: bool = False):
     import anthropic
 
     if mode == "cross":
-        messages = build_cross_messages(
-            load_posts(POSTS_DIR), load_posts(BASE / "private-posts")
-        )
+        public, private = load_posts(POSTS_DIR), load_posts(BASE / "private-posts")
+        messages = build_cross_messages(public, private)
+        corpus = public + private
         prefix = "private-cross-"  # private-* 로 시작해야 로컬 sparse-checkout 제외에 걸림
     else:
         corpus = load_posts(BASE / "private-posts" if mode == "private" else POSTS_DIR)
         messages = build_messages(corpus)
         prefix = "private-" if mode == "private" else ""
+
+    digest = fingerprint(corpus)
+    if not force and load_fingerprints().get(mode) == digest:
+        print(f"skip: 새 글 없음 — {mode} 코퍼스가 지난 분석과 동일 (--force로 강제 실행)")
+        return None
 
     client = anthropic.Anthropic()
     # max_tokens는 thinking + 본문 합산 한도. 코퍼스가 크면 thinking만 수만 토큰을 쓰므로
@@ -120,6 +151,7 @@ def analyze(mode: str = "public") -> Path:
     # 지난주 리포트를 덮어쓰는 버그가 있었다. 주차 계산은 항상 KST 기준.
     path = report_path(datetime.now(ZoneInfo("Asia/Seoul")).date(), prefix)
     path.write_text(extract_text(resp.content) + "\n", encoding="utf-8")
+    save_fingerprint(mode, digest)
     print(f"saved: {path.name}")
     return path
 
@@ -129,5 +161,9 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--private", action="store_true", help="private-posts/ 분석")
     group.add_argument("--cross", action="store_true", help="공개 vs 비공개 교차 분석")
+    parser.add_argument("--force", action="store_true", help="새 글이 없어도 강제 분석")
     args = parser.parse_args()
-    analyze(mode="cross" if args.cross else "private" if args.private else "public")
+    analyze(
+        mode="cross" if args.cross else "private" if args.private else "public",
+        force=args.force,
+    )
