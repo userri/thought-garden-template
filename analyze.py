@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
@@ -59,6 +60,72 @@ PROMPT_CROSS = """당신은 개인 일기 아카이브의 관찰자입니다. �
 
 출력은 한국어 마크다운으로.
 """
+
+
+# 회상 리포트 — 지난 해들의 '이맘때' 글을 날짜로 뽑아 지금과 대조한다.
+# 전체 분석은 글이 쌓일수록 개별 글이 패턴으로 뭉개져 사라지므로, 발견은 따로 만든다.
+RECALL_WINDOW_DAYS = 10  # 오늘 기준 ±10일 = "이번 주 무렵"
+RECALL_RECENT_N = 3  # 대조 기준이 되는 최근 글 수
+
+PROMPT_RECALL = """당신은 개인 일기 아카이브의 관찰자입니다.
+<past>는 지난 해들의 '이맘때' 기록이고, <now>는 최근 기록입니다.
+두 시점을 대조해 다음 3종을 출력하세요.
+
+① 그때 무엇을 쓰고 있었나 — 연도별 한 줄 요약
+② 그때와 지금 — 같은 소재·관심사가 어떻게 달라졌는지
+③ 그때만 있고 지금은 없는 것 / 지금만 있는 것
+
+규칙 (반드시 준수):
+1. 모든 인사이트는 원문 문장 인용 필수. 대비 사례는 그때와 지금 양쪽 모두 인용.
+2. 원인/심리 추정 금지. 관찰만 기술. 해석은 글쓴이의 몫.
+3. 묶기 전, 글쓴이 본인이 다른 설명을 했는지 확인하고 그 설명을 존중할 것.
+4. 당연한 차이(나이가 들었다, 계절이 같다 등)는 제외.
+5. 기록이 없는 해는 "기록 없음"으로 명시하고 추측하지 말 것.
+6. 3개 이상 연도에서 나타나야 "패턴". 2개면 "후보"로만 표기.
+
+출력은 한국어 마크다운으로.
+"""
+
+
+def post_date(path: Path):
+    """파일명 앞의 YYYY-MM-DD에서 작성일 추출. 없으면 None."""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})-", path.name)
+    return date(int(m[1]), int(m[2]), int(m[3])) if m else None
+
+
+def day_distance(a: date, b: date) -> int:
+    """연도를 무시한 '몇 월 며칠'끼리의 거리 (연말↔연초 감김 처리)."""
+    diff = abs(a.timetuple().tm_yday - b.timetuple().tm_yday)
+    return min(diff, 365 - diff)
+
+
+def all_post_paths() -> list:
+    dirs = [POSTS_DIR, BASE / "private-posts"]
+    return [p for d in dirs if d.exists() for p in d.glob("*.md")]
+
+
+def select_recall(paths: list, today: date, window: int = RECALL_WINDOW_DAYS,
+                  recent_n: int = RECALL_RECENT_N):
+    """(지난 해들의 이맘때 글, 최근 글) — 날짜만으로 고른다. LLM 불필요."""
+    dated = sorted((d, p) for d, p in ((post_date(p), p) for p in paths) if d)
+    past = [
+        (d, p) for d, p in dated
+        if d.year < today.year and day_distance(d, today) <= window
+    ]
+    return past, dated[-recent_n:]
+
+
+def build_recall_corpus(past: list, recent: list) -> str:
+    def block(items):
+        return "\n\n=====\n\n".join(
+            f"[{d.year}]\n{p.read_text(encoding='utf-8')}" for d, p in items
+        )
+
+    return f"<past>\n{block(past)}\n</past>\n\n<now>\n{block(recent)}\n</now>"
+
+
+def build_recall_messages(corpus: str) -> list:
+    return [{"role": "user", "content": f"{PROMPT_RECALL}\n\n{corpus}"}]
 
 
 def load_posts(posts_dir: Path = POSTS_DIR) -> str:
@@ -130,6 +197,15 @@ def analyze(mode: str = "public", force: bool = False):
         messages = build_cross_messages(public, private)
         corpus = public + private
         prefix = "private-cross-"  # private-* 로 시작해야 로컬 sparse-checkout 제외에 걸림
+    elif mode == "recall":
+        past, recent = select_recall(all_post_paths(), today_kst())
+        if not past:
+            print("skip: 이맘때 과거 글이 없음 — 회상할 게 없다")
+            return None
+        corpus = build_recall_corpus(past, recent)
+        messages = build_recall_messages(corpus)
+        prefix = "private-recall-"  # 비공개 글을 포함하므로 private-* 규칙을 따른다
+        print(f"회상 대상: 과거 {len(past)}편 ({sorted({d.year for d, _ in past})}) vs 최근 {len(recent)}편")
     else:
         corpus = load_posts(BASE / "private-posts" if mode == "private" else POSTS_DIR)
         messages = build_messages(corpus)
@@ -166,9 +242,13 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--private", action="store_true", help="private-posts/ 분석")
     group.add_argument("--cross", action="store_true", help="공개 vs 비공개 교차 분석")
+    group.add_argument("--recall", action="store_true", help="지난 해들의 이맘때 vs 지금")
     parser.add_argument("--force", action="store_true", help="새 글이 없어도 강제 분석")
     args = parser.parse_args()
-    analyze(
-        mode="cross" if args.cross else "private" if args.private else "public",
-        force=args.force,
+    mode = (
+        "cross" if args.cross
+        else "recall" if args.recall
+        else "private" if args.private
+        else "public"
     )
+    analyze(mode=mode, force=args.force)
