@@ -167,6 +167,11 @@ def extract_text(content_blocks) -> str:
     return "\n".join(texts)
 
 
+def is_out_of_credit(err) -> bool:
+    """크레딧 소진은 코드 버그가 아니라 결제 문제 — 워크플로를 빨간불로 만들지 않는다."""
+    return "credit balance" in str(err).lower()
+
+
 def fingerprint(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -219,12 +224,22 @@ def analyze(mode: str = "public", force: bool = False):
     client = anthropic.Anthropic()
     # max_tokens는 thinking + 본문 합산 한도. 코퍼스가 크면 thinking만 수만 토큰을 쓰므로
     # 넉넉히 잡고, 이 크기는 HTTP 타임아웃을 피하려면 스트리밍이 필요하다.
-    with client.messages.stream(
-        model=MODEL,
-        max_tokens=64000,
-        messages=messages,
-    ) as stream:
-        resp = stream.get_final_message()
+    try:
+        with client.messages.stream(
+            model=MODEL,
+            max_tokens=64000,
+            messages=messages,
+        ) as stream:
+            resp = stream.get_final_message()
+    except anthropic.BadRequestError as e:
+        if not is_out_of_credit(e):
+            raise
+        print(
+            "skip: Anthropic 크레딧 부족 — console.anthropic.com에서 충전 후 다시 실행하세요.\n"
+            "      (코드 문제가 아니므로 실패로 처리하지 않음)",
+            file=sys.stderr,
+        )
+        return None
     if resp.stop_reason == "max_tokens":
         print("경고: max_tokens 도달 (리포트가 잘렸을 수 있음)", file=sys.stderr)
     REPORTS_DIR.mkdir(exist_ok=True)

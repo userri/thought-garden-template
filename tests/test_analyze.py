@@ -156,3 +156,12 @@ def test_recall_corpus_and_prompt_shape(tmp_path):
 def test_recall_report_stays_private():
     # 회상 리포트는 비공개 글을 포함하므로 sparse-checkout 제외 패턴에 걸려야 한다
     assert analyze.report_path(date(2026, 7, 27), "private-recall-").name.startswith("private-")
+
+
+def test_is_out_of_credit_distinguishes_billing_from_bugs():
+    # 실제 응답 메시지 (2026-08-03 private report 실패)
+    billing = ("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+               "'message': 'Your credit balance is too low to access the Anthropic API.'}}")
+    assert analyze.is_out_of_credit(billing)
+    # 진짜 버그성 400은 실패로 남아야 한다
+    assert not analyze.is_out_of_credit("prompt is too long: 211682 tokens > 200000 maximum")
