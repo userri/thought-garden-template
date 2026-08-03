@@ -6,6 +6,10 @@ on:
       model:
         description: "TG_MODEL — 교차는 코퍼스가 Haiku 컨텍스트(200k)를 초과해 Sonnet 필수"
         default: "claude-sonnet-5"
+      force:
+        description: "프롬프트를 고쳤을 때 등, 새 글이 없어도 강제 실행"
+        type: boolean
+        default: false
     # 수동 실행 전용 — 공개 vs 비공개 교차 분석
 
 permissions:
@@ -20,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python analyze.py --cross
+      - run: python analyze.py --cross ${{ inputs.force && '--force' || '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TG_MODEL: ${{ inputs.model }}

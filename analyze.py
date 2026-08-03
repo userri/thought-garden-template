@@ -29,6 +29,7 @@ PROMPT_V3 = """당신은 개인 일기 아카이브의 관찰자입니다. 아�
 ① 글별 한 줄 요약
 ② 반복 패턴
 ③ 시간에 따른 변화
+④ 최근 글 — <recent>의 글을 한 편도 빠짐없이 각각 한 줄로 다룰 것
 
 규칙 (반드시 준수):
 1. 모든 인사이트는 원문 문장 인용 필수. 근거 없는 평가("성장했네요" 등) 금지.
@@ -37,9 +38,18 @@ PROMPT_V3 = """당신은 개인 일기 아카이브의 관찰자입니다. 아�
 4. 당연한 반복(생일, 계절 등 정보가치 없는 항목)은 제외.
 5. 본인 진술로만 존재하고 원문 기록이 없는 과거사는 "기록 미확인"을 명시. 정황이 강해도 단정하지 말 것.
 6. 3개 이상 시점에서 등장해야 "패턴". 2개 시점이면 "후보"로만 표기.
+7. <recent>는 <posts>에도 들어 있는 최근 글을 다시 보여준 것이다. 중복 자료가 아니라
+   "반드시 다뤄야 할 대상"이라는 표시이니 ④에서 전부 다룰 것. 누적된 과거 글이 많다는
+   이유로 최근 글을 생략하지 말 것.
+8. 날짜·연도는 각 글의 frontmatter `date:`에서 그대로 옮겨 적을 것. 기억이나 추정으로
+   연도를 쓰지 말 것.
 
 출력은 한국어 마크다운으로.
 """
+
+# 최근 글은 누적 코퍼스에 묻힌다(전체 345편 중 신규 5편 = 지분 1.4%).
+# 별도 블록으로 다시 보여줘서 최소한의 지면을 강제한다.
+RECENT_MARK_N = 10
 
 # 교차(공개 vs 비공개) 분석 — 섞지 않고 대조한다. 규칙은 v3 공통 + 교차 전용 2개.
 PROMPT_CROSS = """당신은 개인 일기 아카이브의 관찰자입니다. 같은 사람이 쓴 글이
@@ -145,8 +155,17 @@ def report_path(today: date, prefix: str = "") -> Path:
     return REPORTS_DIR / f"{prefix}{year}-{week:02d}.md"
 
 
-def build_messages(corpus: str) -> list:
-    return [{"role": "user", "content": f"{PROMPT_V3}\n\n<posts>\n{corpus}\n</posts>"}]
+def recent_posts(posts_dir: Path, n: int = RECENT_MARK_N) -> str:
+    """파일명이 YYYY-MM-DD로 시작하므로 정렬 뒤쪽이 최신."""
+    paths = sorted(posts_dir.glob("*.md"))[-n:]
+    return "\n\n=====\n\n".join(p.read_text(encoding="utf-8") for p in paths)
+
+
+def build_messages(corpus: str, recent: str = "") -> list:
+    tail = f"\n\n<recent>\n{recent}\n</recent>" if recent else ""
+    return [
+        {"role": "user", "content": f"{PROMPT_V3}\n\n<posts>\n{corpus}\n</posts>{tail}"}
+    ]
 
 
 def build_cross_messages(public: str, private: str) -> list:
@@ -230,8 +249,9 @@ def analyze(mode: str = "public", force: bool = False):
         prefix = "private-recall-"  # 비공개 글을 포함하므로 private-* 규칙을 따른다
         print(f"회상 대상: 과거 {len(past)}편 ({sorted({d.year for d, _ in past})}) vs 최근 {len(recent)}편")
     else:
-        corpus = load_posts(BASE / "private-posts" if mode == "private" else POSTS_DIR)
-        messages = build_messages(corpus)
+        posts_dir = BASE / "private-posts" if mode == "private" else POSTS_DIR
+        corpus = load_posts(posts_dir)
+        messages = build_messages(corpus, recent_posts(posts_dir))
         prefix = "private-" if mode == "private" else ""
 
     digest = fingerprint(corpus)

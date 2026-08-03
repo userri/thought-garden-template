@@ -6,6 +6,10 @@ on:
       model:
         description: "TG_MODEL (회상은 글이 몇 편뿐이라 Haiku로 충분)"
         default: "claude-haiku-4-5"
+      force:
+        description: "프롬프트를 고쳤을 때 등, 새 글이 없어도 강제 실행"
+        type: boolean
+        default: false
     # 수동 실행 — 자동화하려면 아래 schedule 주석을 풀면 된다 (주 1회 KST 월 07:10)
   # schedule:
   #   - cron: "10 22 * * 0"
@@ -22,7 +26,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python analyze.py --recall
+      - run: python analyze.py --recall ${{ inputs.force && '--force' || '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TG_MODEL: ${{ inputs.model }}

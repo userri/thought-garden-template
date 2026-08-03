@@ -182,3 +182,19 @@ def test_usage_footer_computes_cost():
 def test_usage_footer_unknown_model_shows_tokens_only():
     footer = analyze.usage_footer("gpt-x", FakeUsage())
     assert "88,000" in footer and "$" not in footer
+
+
+def test_recent_posts_takes_newest(tmp_path):
+    for n in ["2021-01-01-옛날.md", "2026-08-01-어제.md", "2026-08-03-오늘.md"]:
+        (tmp_path / n).write_text(n, encoding="utf-8")
+    recent = analyze.recent_posts(tmp_path, n=2)
+    assert "2026-08-03" in recent and "2026-08-01" in recent
+    assert "2021-01-01" not in recent
+
+
+def test_build_messages_marks_recent_as_must_cover():
+    content = analyze.build_messages("전체 코퍼스", "최근 글")[0]["content"]
+    assert "<recent>\n최근 글\n</recent>" in content
+    assert "빠짐없이" in content  # ④ 최근 글 섹션 요구
+    # recent 없이 호출하면 데이터 블록이 붙지 않는다 (프롬프트 본문의 <recent> 언급은 남음)
+    assert "</recent>" not in analyze.build_messages("전체 코퍼스")[0]["content"]
