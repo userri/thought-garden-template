@@ -165,3 +165,20 @@ def test_is_out_of_credit_distinguishes_billing_from_bugs():
     assert analyze.is_out_of_credit(billing)
     # 진짜 버그성 400은 실패로 남아야 한다
     assert not analyze.is_out_of_credit("prompt is too long: 211682 tokens > 200000 maximum")
+
+
+class FakeUsage:
+    input_tokens = 88_000
+    output_tokens = 8_000
+
+
+def test_usage_footer_computes_cost():
+    footer = analyze.usage_footer("claude-haiku-4-5", FakeUsage())
+    assert "입력 88,000" in footer and "출력 8,000" in footer
+    # 88k/1M*$1 + 8k/1M*$5 = 0.088 + 0.040 = $0.128
+    assert "$0.128" in footer
+
+
+def test_usage_footer_unknown_model_shows_tokens_only():
+    footer = analyze.usage_footer("gpt-x", FakeUsage())
+    assert "88,000" in footer and "$" not in footer

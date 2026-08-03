@@ -167,6 +167,24 @@ def extract_text(content_blocks) -> str:
     return "\n".join(texts)
 
 
+# USD / 100만 토큰 (입력, 출력) — 정가 기준. 모델을 바꾸면 여기도 갱신할 것.
+# (Sonnet 5는 2026-08-31까지 도입가 $2/$10라 실제 청구는 이보다 낮을 수 있음)
+PRICES = {
+    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-sonnet-5": (3.0, 15.0),
+}
+
+
+def usage_footer(model: str, usage) -> str:
+    """리포트 말미에 박는 실측 사용량/비용. usage는 API 응답의 usage 객체."""
+    line = f"입력 {usage.input_tokens:,} + 출력 {usage.output_tokens:,} 토큰"
+    prices = PRICES.get(model)
+    if prices:
+        cost = usage.input_tokens / 1e6 * prices[0] + usage.output_tokens / 1e6 * prices[1]
+        line += f" ≈ ${cost:.3f}"
+    return f"\n\n---\n*{model} · {line}*\n"
+
+
 def is_out_of_credit(err) -> bool:
     """크레딧 소진은 코드 버그가 아니라 결제 문제 — 워크플로를 빨간불로 만들지 않는다."""
     return "credit balance" in str(err).lower()
@@ -246,9 +264,10 @@ def analyze(mode: str = "public", force: bool = False):
     # CI 러너는 UTC — KST 월요일 아침 실행 시 UTC는 아직 일요일(지난 주차)이라
     # 지난주 리포트를 덮어쓰는 버그가 있었다. 주차 계산은 항상 KST 기준.
     path = report_path(today_kst(), prefix)
-    path.write_text(extract_text(resp.content) + "\n", encoding="utf-8")
+    footer = usage_footer(MODEL, resp.usage)
+    path.write_text(extract_text(resp.content) + footer, encoding="utf-8")
     save_fingerprint(mode, digest)
-    print(f"saved: {path.name}")
+    print(f"saved: {path.name}{footer.strip()}")
     return path
 
 
